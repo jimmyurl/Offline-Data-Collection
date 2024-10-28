@@ -1,5 +1,4 @@
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
@@ -16,7 +15,7 @@ class CollectedData {
   final String description;
   final String location;
   final DateTime timestamp;
-  final bool isSynced;
+  bool isSynced;
   final String? imageLocalPath;
   final String? category;
   final double? latitude;
@@ -39,6 +38,7 @@ class CollectedData {
     this.additionalFields,
   });
 
+  // Base method for converting to Map
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -46,7 +46,7 @@ class CollectedData {
       'description': description,
       'location': location,
       'timestamp': timestamp.toIso8601String(),
-      'isSynced': isSynced ? 1 : 0,
+      'isSynced': isSynced ? 1 : 0, // SQLite uses 1/0 for booleans
       'imageLocalPath': imageLocalPath,
       'category': category,
       'latitude': latitude,
@@ -57,6 +57,10 @@ class CollectedData {
     };
   }
 
+  // Use toMap for JSON serialization
+  Map<String, dynamic> toJson() => toMap();
+
+  // Base method for creating instance from Map
   factory CollectedData.fromMap(Map<String, dynamic> map) {
     return CollectedData(
       id: map['id'],
@@ -64,15 +68,53 @@ class CollectedData {
       description: map['description'],
       location: map['location'],
       timestamp: DateTime.parse(map['timestamp']),
-      isSynced: map['isSynced'] == 1,
+      isSynced: map['isSynced'] == 1, // Convert SQLite 1/0 to boolean
       imageLocalPath: map['imageLocalPath'],
       category: map['category'],
       latitude: map['latitude'],
       longitude: map['longitude'],
-      status: map['status'],
+      status: map['status'] ?? 'pending',
       additionalFields: map['additionalFields'] != null
           ? jsonDecode(map['additionalFields'])
           : null,
+    );
+  }
+
+  // Use fromMap for JSON deserialization
+  factory CollectedData.fromJson(Map<String, dynamic> json) =>
+      CollectedData.fromMap(json);
+
+  void markAsSynced() {
+    isSynced = true;
+  }
+
+  CollectedData copyWith({
+    int? id,
+    String? title,
+    String? description,
+    String? location,
+    DateTime? timestamp,
+    bool? isSynced,
+    String? imageLocalPath,
+    String? category,
+    double? latitude,
+    double? longitude,
+    String? status,
+    Map<String, dynamic>? additionalFields,
+  }) {
+    return CollectedData(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      location: location ?? this.location,
+      timestamp: timestamp ?? this.timestamp,
+      isSynced: isSynced ?? this.isSynced,
+      imageLocalPath: imageLocalPath ?? this.imageLocalPath,
+      category: category ?? this.category,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      status: status ?? this.status,
+      additionalFields: additionalFields ?? this.additionalFields,
     );
   }
 }
@@ -136,13 +178,11 @@ class DatabaseHelper {
     }
   }
 
-  // Added missing insert method
   Future<int> insert(CollectedData data) async {
     final db = await database;
     return await db.insert('collected_data', data.toMap());
   }
 
-  // Added missing getUnsyncedData method
   Future<List<CollectedData>> getUnsyncedData() async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query(
@@ -153,7 +193,6 @@ class DatabaseHelper {
     return List.generate(maps.length, (i) => CollectedData.fromMap(maps[i]));
   }
 
-  // Added missing markAsSynced method
   Future<int> markAsSynced(int id) async {
     final db = await database;
     return await db.update(
@@ -164,14 +203,12 @@ class DatabaseHelper {
     );
   }
 
-  // Added method to get all data
   Future<List<CollectedData>> getAllData() async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query('collected_data');
     return List.generate(maps.length, (i) => CollectedData.fromMap(maps[i]));
   }
 
-  // Added method to delete data
   Future<int> deleteData(int id) async {
     final db = await database;
     return await db.delete(
@@ -193,7 +230,6 @@ class DataProvider with ChangeNotifier {
   bool get isOnline => _isOnline;
   bool get isSyncing => _isSyncing;
 
-  // Added missing loadData method
   Future<void> loadData() async {
     final data = await DatabaseHelper.instance.getAllData();
     _items.clear();
@@ -201,22 +237,21 @@ class DataProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // Initialize connectivity monitoring
   Future<void> initializeConnectivity() async {
     final connectivity = await Connectivity().checkConnectivity();
     _isOnline = connectivity != ConnectivityResult.none;
 
-    // Listen for connectivity changes
-    Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
-      _isOnline = result != ConnectivityResult.none;
+    Connectivity()
+        .onConnectivityChanged
+        .listen((List<ConnectivityResult> results) {
+      _isOnline = results.any((result) => result != ConnectivityResult.none);
       if (_isOnline) {
-        syncData(); // Try to sync when connection is restored
+        syncData();
       }
       notifyListeners();
     });
   }
 
-  // Form validation
   String? validateTitle(String? value) {
     if (value == null || value.isEmpty) {
       return 'Title is required';
@@ -234,7 +269,6 @@ class DataProvider with ChangeNotifier {
     return null;
   }
 
-  // Image handling
   Future<String?> captureImage() async {
     try {
       final XFile? image = await _imagePicker.pickImage(
@@ -245,7 +279,6 @@ class DataProvider with ChangeNotifier {
       );
 
       if (image != null) {
-        // Save image to app's local storage
         final Directory appDir = await getApplicationDocumentsDirectory();
         final String fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
         final String localPath = join(appDir.path, fileName);
@@ -260,7 +293,6 @@ class DataProvider with ChangeNotifier {
     }
   }
 
-  // Enhanced sync functionality
   Future<void> syncData() async {
     if (!_isOnline || _isSyncing) return;
 
@@ -272,7 +304,6 @@ class DataProvider with ChangeNotifier {
 
       for (var data in unsyncedData) {
         try {
-          // Prepare image data if exists
           String? imageUrl;
           if (data.imageLocalPath != null) {
             final File imageFile = File(data.imageLocalPath!);
@@ -291,7 +322,6 @@ class DataProvider with ChangeNotifier {
           await DatabaseHelper.instance.markAsSynced(data.id!);
         } catch (e) {
           print('Error syncing item ${data.id}: $e');
-          // Could implement retry logic here
         }
       }
 
@@ -302,18 +332,16 @@ class DataProvider with ChangeNotifier {
     }
   }
 
-  // Periodic sync attempt
   void startPeriodicSync() {
     Future.doWhile(() async {
       if (_isOnline && !_isSyncing) {
         await syncData();
       }
       await Future.delayed(const Duration(minutes: 15));
-      return true; // Continue the loop
+      return true;
     });
   }
 
-  // Enhanced data addition with validation
   Future<bool> addData(CollectedData data) async {
     if (validateTitle(data.title) != null ||
         validateDescription(data.description) != null) {
@@ -330,7 +358,6 @@ class DataProvider with ChangeNotifier {
     return true;
   }
 
-  // Added method to delete data
   Future<void> deleteData(int id) async {
     await DatabaseHelper.instance.deleteData(id);
     await loadData();
@@ -346,101 +373,85 @@ class DataCollectionForm extends StatefulWidget {
 
 class _DataCollectionFormState extends State<DataCollectionForm> {
   final _formKey = GlobalKey<FormState>();
-  final _titleController = TextEditingController();
-  final _descriptionController = TextEditingController();
+  String? _title;
+  String? _description;
+  String? _location;
+  DateTime _timestamp = DateTime.now();
   String? _imageLocalPath;
-  String? _selectedCategory;
-  final List<String> _categories = ['General', 'Important', 'Urgent'];
+  String? _category;
+  double? _latitude;
+  double? _longitude;
+  String _status = 'pending';
+  Map<String, dynamic>? _additionalFields = {};
 
   @override
   Widget build(BuildContext context) {
-    final dataProvider = Provider.of<DataProvider>(context);
-
     return Form(
       key: _formKey,
       child: Column(
         children: [
           TextFormField(
-            controller: _titleController,
             decoration: InputDecoration(labelText: 'Title'),
-            validator: dataProvider.validateTitle,
+            validator: (value) =>
+                Provider.of<DataProvider>(context, listen: false)
+                    .validateTitle(value),
+            onSaved: (value) {
+              _title = value;
+            },
           ),
           TextFormField(
-            controller: _descriptionController,
             decoration: InputDecoration(labelText: 'Description'),
-            validator: dataProvider.validateDescription,
-            maxLines: 3,
-          ),
-          DropdownButtonFormField<String>(
-            value: _selectedCategory,
-            items: _categories.map((category) {
-              return DropdownMenuItem(
-                value: category,
-                child: Text(category),
-              );
-            }).toList(),
-            onChanged: (value) {
-              setState(() {
-                _selectedCategory = value;
-              });
+            validator: (value) =>
+                Provider.of<DataProvider>(context, listen: false)
+                    .validateDescription(value),
+            onSaved: (value) {
+              _description = value;
             },
-            decoration: InputDecoration(labelText: 'Category'),
           ),
-          ElevatedButton.icon(
-            onPressed: () async {
-              final imagePath = await dataProvider.captureImage();
-              setState(() {
-                _imageLocalPath = imagePath;
-              });
+          TextFormField(
+            decoration: InputDecoration(labelText: 'Location'),
+            onSaved: (value) {
+              _location = value;
             },
-            icon: Icon(Icons.camera_alt),
-            label: Text('Capture Image'),
           ),
-          if (_imageLocalPath != null)
-            Image.file(
-              File(_imageLocalPath!),
-              height: 200,
-              fit: BoxFit.cover,
-            ),
+          // Additional fields and image capture button can go here
           ElevatedButton(
             onPressed: () async {
-              if (_formKey.currentState!.validate()) {
-                final success = await dataProvider.addData(
-                  CollectedData(
-                    title: _titleController.text,
-                    description: _descriptionController.text,
-                    location: 'Current Location', // TODO: Implement location
-                    timestamp: DateTime.now(),
-                    imageLocalPath: _imageLocalPath,
-                    category: _selectedCategory,
-                  ),
+              if (_formKey.currentState?.validate() == true) {
+                _formKey.currentState?.save();
+
+                final collectedData = CollectedData(
+                  title: _title!,
+                  description: _description!,
+                  location: _location!,
+                  timestamp: _timestamp,
+                  imageLocalPath: _imageLocalPath,
+                  category: _category,
+                  latitude: _latitude,
+                  longitude: _longitude,
+                  status: _status,
+                  additionalFields: _additionalFields,
                 );
+
+                final success =
+                    await Provider.of<DataProvider>(context, listen: false)
+                        .addData(collectedData);
 
                 if (success) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Data saved successfully')),
+                    SnackBar(content: Text('Data successfully saved!')),
                   );
-                  // Clear form
-                  _titleController.clear();
-                  _descriptionController.clear();
-                  setState(() {
-                    _imageLocalPath = null;
-                    _selectedCategory = null;
-                  });
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Validation failed.')),
+                  );
                 }
               }
             },
-            child: Text('Submit'),
+            child: Text('Save Data'),
           ),
         ],
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _descriptionController.dispose();
-    super.dispose();
   }
 }

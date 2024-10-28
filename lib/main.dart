@@ -1,12 +1,19 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:data_collection/pages/collected_data.dart';
+import 'package:data_collection/pages/collected_data.dart'; // This imports 'CollectedData'
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:data_collection/pages/data_provider.dart'
+    as provider; // Adding a prefix to avoid name conflict
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
+
   runApp(
     ChangeNotifierProvider(
-      create: (_) => DataProvider(),
+      create: (_) => provider.DataProvider(
+          prefs), // Using the prefixed 'provider.DataProvider'
       child: const MyApp(),
     ),
   );
@@ -41,20 +48,21 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _setupConnectivity();
-    Provider.of<DataProvider>(context, listen: false).loadData();
+    Provider.of<provider.DataProvider>(context, listen: false)
+        .loadData(); // Referencing the prefixed 'DataProvider'
   }
 
   Future<void> _setupConnectivity() async {
     final connectivity = Connectivity();
 
-    // Check initial connection status
     final result = await connectivity.checkConnectivity();
-    Provider.of<DataProvider>(context, listen: false)
+    if (!mounted) return;
+    Provider.of<provider.DataProvider>(context, listen: false)
         .updateOnlineStatus(result != ConnectivityResult.none);
 
-    // Listen for connectivity changes
     connectivity.onConnectivityChanged.listen((result) {
-      Provider.of<DataProvider>(context, listen: false)
+      if (!mounted) return;
+      Provider.of<provider.DataProvider>(context, listen: false)
           .updateOnlineStatus(result != ConnectivityResult.none);
     });
   }
@@ -65,29 +73,59 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         title: const Text('Offline Data Collection'),
         actions: [
-          Consumer<DataProvider>(
+          Consumer<provider.DataProvider>(
+            // Using prefixed 'DataProvider'
             builder: (context, provider, child) {
-              return Icon(
-                provider.isOnline ? Icons.wifi : Icons.wifi_off,
-                color: provider.isOnline ? Colors.green : Colors.red,
+              return Padding(
+                padding: const EdgeInsets.only(right: 16.0),
+                child: Icon(
+                  provider.isOnline ? Icons.wifi : Icons.wifi_off,
+                  color: provider.isOnline ? Colors.green : Colors.red,
+                ),
               );
             },
           ),
-          const SizedBox(width: 16),
         ],
       ),
-      body: Consumer<DataProvider>(
+      body: Consumer<provider.DataProvider>(
+        // Using prefixed 'DataProvider'
         builder: (context, provider, child) {
+          if (provider.items.isEmpty) {
+            return const Center(
+              child: Text('No data collected yet'),
+            );
+          }
+
           return ListView.builder(
             itemCount: provider.items.length,
             itemBuilder: (context, index) {
               final item = provider.items[index];
-              return ListTile(
-                title: Text(item.title),
-                subtitle: Text(item.description),
-                trailing: Icon(
-                  item.isSynced ? Icons.cloud_done : Icons.cloud_upload,
-                  color: item.isSynced ? Colors.green : Colors.orange,
+              return Card(
+                margin: const EdgeInsets.symmetric(
+                  horizontal: 16.0,
+                  vertical: 8.0,
+                ),
+                child: ListTile(
+                  title: Text(item.title),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(item.description),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Location: ${item.location}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      Text(
+                        'Date: ${item.timestamp.toString().split('.')[0]}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                  trailing: Icon(
+                    item.isSynced ? Icons.cloud_done : Icons.cloud_upload,
+                    color: item.isSynced ? Colors.green : Colors.orange,
+                  ),
                 ),
               );
             },
@@ -110,22 +148,36 @@ class _HomePageState extends State<HomePage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Add New Data'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: titleController,
-              decoration: const InputDecoration(labelText: 'Title'),
-            ),
-            TextField(
-              controller: descriptionController,
-              decoration: const InputDecoration(labelText: 'Description'),
-            ),
-            TextField(
-              controller: locationController,
-              decoration: const InputDecoration(labelText: 'Location'),
-            ),
-          ],
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titleController,
+                decoration: const InputDecoration(
+                  labelText: 'Title',
+                  hintText: 'Enter title',
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: descriptionController,
+                decoration: const InputDecoration(
+                  labelText: 'Description',
+                  hintText: 'Enter description',
+                ),
+                maxLines: 3,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: locationController,
+                decoration: const InputDecoration(
+                  labelText: 'Location',
+                  hintText: 'Enter location',
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -134,13 +186,27 @@ class _HomePageState extends State<HomePage> {
           ),
           TextButton(
             onPressed: () {
+              if (titleController.text.isEmpty ||
+                  descriptionController.text.isEmpty ||
+                  locationController.text.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please fill all fields'),
+                  ),
+                );
+                return;
+              }
+
               final data = CollectedData(
                 title: titleController.text,
                 description: descriptionController.text,
                 location: locationController.text,
                 timestamp: DateTime.now(),
               );
-              Provider.of<DataProvider>(context, listen: false).addData(data);
+
+              Provider.of<provider.DataProvider>(context,
+                      listen: false) // Using prefixed 'DataProvider'
+                  .addData(data);
               Navigator.pop(context);
             },
             child: const Text('Save'),
