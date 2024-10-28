@@ -1,6 +1,4 @@
 
-
-```markdown
 # Offline Data Collection App
 
 ## Overview
