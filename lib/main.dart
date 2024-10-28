@@ -47,9 +47,12 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _setupConnectivity();
-    Provider.of<provider.DataProvider>(context, listen: false)
-        .loadData(); // Referencing the prefixed 'DataProvider'
+    // Setup connectivity and load data after the first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _setupConnectivity();
+      Provider.of<provider.DataProvider>(context, listen: false)
+          .loadData(); // Referencing the prefixed 'DataProvider'
+    });
   }
 
   Future<void> _setupConnectivity() async {
@@ -71,10 +74,18 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Offline Data Collection'),
+        backgroundColor: const Color(0xFF009688), // Set AppBar color here
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Image.asset(
+              'assets/images/logo.png',
+              height: 40,
+            ),
+          ],
+        ),
         actions: [
           Consumer<provider.DataProvider>(
-            // Using prefixed 'DataProvider'
             builder: (context, provider, child) {
               return Padding(
                 padding: const EdgeInsets.only(right: 16.0),
@@ -88,7 +99,6 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
       body: Consumer<provider.DataProvider>(
-        // Using prefixed 'DataProvider'
         builder: (context, provider, child) {
           if (provider.items.isEmpty) {
             return const Center(
@@ -135,6 +145,34 @@ class _HomePageState extends State<HomePage> {
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showAddDataDialog(context),
         child: const Icon(Icons.add),
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        items: [
+          BottomNavigationBarItem(
+            icon: Image.asset('assets/icons/home.png',
+                width: 24, height: 24), // Home icon
+            label: 'Home',
+          ),
+          BottomNavigationBarItem(
+            icon: Image.asset('assets/icons/uploads.png',
+                width: 24, height: 24), // Uploads icon
+            label: 'Uploads',
+          ),
+          BottomNavigationBarItem(
+            icon: Image.asset('assets/icons/profile.png',
+                width: 24, height: 24), // Profile icon
+            label: 'Profile',
+          ),
+        ],
+        currentIndex: 0, // Set the current index based on the selected tab
+        selectedItemColor:
+            const Color(0xFF009688), // Change selected item color
+        unselectedItemColor:
+            Colors.grey, // Optional: set the unselected item color
+        onTap: (index) {
+          // Handle navigation based on the index
+          // You can implement navigation logic here
+        },
       ),
     );
   }
