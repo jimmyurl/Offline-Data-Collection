@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
@@ -133,6 +135,51 @@ class DatabaseHelper {
           'ALTER TABLE collected_data ADD COLUMN additionalFields TEXT');
     }
   }
+
+  // Added missing insert method
+  Future<int> insert(CollectedData data) async {
+    final db = await database;
+    return await db.insert('collected_data', data.toMap());
+  }
+
+  // Added missing getUnsyncedData method
+  Future<List<CollectedData>> getUnsyncedData() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'collected_data',
+      where: 'isSynced = ?',
+      whereArgs: [0],
+    );
+    return List.generate(maps.length, (i) => CollectedData.fromMap(maps[i]));
+  }
+
+  // Added missing markAsSynced method
+  Future<int> markAsSynced(int id) async {
+    final db = await database;
+    return await db.update(
+      'collected_data',
+      {'isSynced': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // Added method to get all data
+  Future<List<CollectedData>> getAllData() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query('collected_data');
+    return List.generate(maps.length, (i) => CollectedData.fromMap(maps[i]));
+  }
+
+  // Added method to delete data
+  Future<int> deleteData(int id) async {
+    final db = await database;
+    return await db.delete(
+      'collected_data',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
 }
 
 // Enhanced data provider with sync features
@@ -145,6 +192,29 @@ class DataProvider with ChangeNotifier {
   List<CollectedData> get items => [..._items];
   bool get isOnline => _isOnline;
   bool get isSyncing => _isSyncing;
+
+  // Added missing loadData method
+  Future<void> loadData() async {
+    final data = await DatabaseHelper.instance.getAllData();
+    _items.clear();
+    _items.addAll(data);
+    notifyListeners();
+  }
+
+  // Initialize connectivity monitoring
+  Future<void> initializeConnectivity() async {
+    final connectivity = await Connectivity().checkConnectivity();
+    _isOnline = connectivity != ConnectivityResult.none;
+
+    // Listen for connectivity changes
+    Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
+      _isOnline = result != ConnectivityResult.none;
+      if (_isOnline) {
+        syncData(); // Try to sync when connection is restored
+      }
+      notifyListeners();
+    });
+  }
 
   // Form validation
   String? validateTitle(String? value) {
@@ -258,6 +328,13 @@ class DataProvider with ChangeNotifier {
     }
 
     return true;
+  }
+
+  // Added method to delete data
+  Future<void> deleteData(int id) async {
+    await DatabaseHelper.instance.deleteData(id);
+    await loadData();
+    notifyListeners();
   }
 }
 
