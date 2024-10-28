@@ -154,6 +154,11 @@ class _HomePageState extends State<HomePage> {
             label: 'Home',
           ),
           BottomNavigationBarItem(
+            icon: Image.asset('assets/icons/assessments.png',
+                width: 24, height: 24), // Home icon
+            label: 'Assessments',
+          ),
+          BottomNavigationBarItem(
             icon: Image.asset('assets/icons/uploads.png',
                 width: 24, height: 24), // Uploads icon
             label: 'Uploads',
