@@ -1,20 +1,16 @@
-import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:data_collection/pages/collected_data.dart'; // This imports 'CollectedData'
+import 'package:data_collection/pages/collected_data.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:data_collection/pages/data_provider.dart'
-    as provider; // Adding a prefix to avoid name conflict
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  final prefs = await SharedPreferences.getInstance();
-
+void main() {
   runApp(
     ChangeNotifierProvider(
-      create: (_) => provider.DataProvider(
-          prefs), // Using the prefixed 'provider.DataProvider'
-      child: const MyApp(),
+      create: (context) => DataProvider(),
+      child: MaterialApp(
+        home: Scaffold(
+          body: DataCollectionForm(), // or wherever you're using it
+        ),
+      ),
     ),
   );
 }
@@ -44,29 +40,17 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  int _selectedIndex = 0;
+
   @override
   void initState() {
     super.initState();
     // Setup connectivity and load data after the first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _setupConnectivity();
-      Provider.of<provider.DataProvider>(context, listen: false)
-          .loadData(); // Referencing the prefixed 'DataProvider'
-    });
-  }
-
-  Future<void> _setupConnectivity() async {
-    final connectivity = Connectivity();
-
-    final result = await connectivity.checkConnectivity();
-    if (!mounted) return;
-    Provider.of<provider.DataProvider>(context, listen: false)
-        .updateOnlineStatus(result != ConnectivityResult.none);
-
-    connectivity.onConnectivityChanged.listen((result) {
-      if (!mounted) return;
-      Provider.of<provider.DataProvider>(context, listen: false)
-          .updateOnlineStatus(result != ConnectivityResult.none);
+      Provider.of<DataProvider>(context, listen: false)
+          .initializeConnectivity();
+      Provider.of<DataProvider>(context, listen: false).loadData();
+      Provider.of<DataProvider>(context, listen: false).startPeriodicSync();
     });
   }
 
@@ -74,7 +58,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: const Color(0xFF009688), // Set AppBar color here
+        backgroundColor: const Color(0xFF009688),
         title: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -85,7 +69,7 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
         actions: [
-          Consumer<provider.DataProvider>(
+          Consumer<DataProvider>(
             builder: (context, provider, child) {
               return Padding(
                 padding: const EdgeInsets.only(right: 16.0),
@@ -98,163 +82,62 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      body: Consumer<provider.DataProvider>(
-        builder: (context, provider, child) {
-          if (provider.items.isEmpty) {
-            return const Center(
-              child: Text('No data collected yet'),
-            );
-          }
-
-          return ListView.builder(
-            itemCount: provider.items.length,
-            itemBuilder: (context, index) {
-              final item = provider.items[index];
-              return Card(
-                margin: const EdgeInsets.symmetric(
-                  horizontal: 16.0,
-                  vertical: 8.0,
-                ),
-                child: ListTile(
-                  title: Text(item.title),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(item.description),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Location: ${item.location}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      Text(
-                        'Date: ${item.timestamp.toString().split('.')[0]}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                  trailing: Icon(
-                    item.isSynced ? Icons.cloud_done : Icons.cloud_upload,
-                    color: item.isSynced ? Colors.green : Colors.orange,
-                  ),
-                ),
-              );
-            },
-          );
-        },
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: const [
+          CollectedDataList(),
+          Center(child: Text('Assessments')),
+          Center(child: Text('Uploads')),
+          Center(child: Text('Profile')),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => _showAddDataDialog(context),
+        onPressed: () => _showDataCollectionForm(context),
         child: const Icon(Icons.add),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        items: [
-          BottomNavigationBarItem(
-            icon: Image.asset('assets/icons/home.png',
-                width: 24, height: 24), // Home icon
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Image.asset('assets/icons/assessments.png',
-                width: 24, height: 24), // Home icon
-            label: 'Assessments',
-          ),
-          BottomNavigationBarItem(
-            icon: Image.asset('assets/icons/uploads.png',
-                width: 24, height: 24), // Uploads icon
-            label: 'Uploads',
-          ),
-          BottomNavigationBarItem(
-            icon: Image.asset('assets/icons/profile.png',
-                width: 24, height: 24), // Profile icon
-            label: 'Profile',
-          ),
-        ],
-        currentIndex: 0, // Set the current index based on the selected tab
-        selectedItemColor:
-            const Color(0xFF009688), // Change selected item color
-        unselectedItemColor:
-            Colors.grey, // Optional: set the unselected item color
-        onTap: (index) {
-          // Handle navigation based on the index
-          // You can implement navigation logic here
-        },
-      ),
+      bottomNavigationBar: _buildBottomNavigationBar(),
     );
   }
 
-  Future<void> _showAddDataDialog(BuildContext context) async {
-    final titleController = TextEditingController();
-    final descriptionController = TextEditingController();
-    final locationController = TextEditingController();
-
-    return showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add New Data'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titleController,
-                decoration: const InputDecoration(
-                  labelText: 'Title',
-                  hintText: 'Enter title',
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: descriptionController,
-                decoration: const InputDecoration(
-                  labelText: 'Description',
-                  hintText: 'Enter description',
-                ),
-                maxLines: 3,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: locationController,
-                decoration: const InputDecoration(
-                  labelText: 'Location',
-                  hintText: 'Enter location',
-                ),
-              ),
-            ],
-          ),
+  Widget _buildBottomNavigationBar() {
+    return BottomNavigationBar(
+      items: [
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.home),
+          label: 'Home',
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              if (titleController.text.isEmpty ||
-                  descriptionController.text.isEmpty ||
-                  locationController.text.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Please fill all fields'),
-                  ),
-                );
-                return;
-              }
+        BottomNavigationBarItem(
+          icon: Image.asset('assets/icons/assessments.png',
+              width: 24, height: 24),
+          label: 'Assessments',
+        ),
+        BottomNavigationBarItem(
+          icon: Image.asset('assets/icons/uploads.png', width: 24, height: 24),
+          label: 'Uploads',
+        ),
+        BottomNavigationBarItem(
+          icon: Image.asset('assets/icons/profile.png', width: 24, height: 24),
+          label: 'Profile',
+        ),
+      ],
+      currentIndex: _selectedIndex,
+      selectedItemColor: const Color(0xFF009688),
+      unselectedItemColor: Colors.grey,
+      onTap: (index) {
+        setState(() {
+          _selectedIndex = index;
+        });
+      },
+    );
+  }
 
-              final data = CollectedData(
-                title: titleController.text,
-                description: descriptionController.text,
-                location: locationController.text,
-                timestamp: DateTime.now(),
-              );
-
-              Provider.of<provider.DataProvider>(context,
-                      listen: false) // Using prefixed 'DataProvider'
-                  .addData(data);
-              Navigator.pop(context);
-            },
-            child: const Text('Save'),
-          ),
-        ],
+  void _showDataCollectionForm(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.all(16.0),
+        child: DataCollectionForm(),
       ),
     );
   }

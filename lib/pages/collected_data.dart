@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import 'dart:async';
 
 // Enhanced data model
 class CollectedData {
@@ -38,7 +39,6 @@ class CollectedData {
     this.additionalFields,
   });
 
-  // Base method for converting to Map
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -46,7 +46,7 @@ class CollectedData {
       'description': description,
       'location': location,
       'timestamp': timestamp.toIso8601String(),
-      'isSynced': isSynced ? 1 : 0, // SQLite uses 1/0 for booleans
+      'isSynced': isSynced ? 1 : 0,
       'imageLocalPath': imageLocalPath,
       'category': category,
       'latitude': latitude,
@@ -57,10 +57,8 @@ class CollectedData {
     };
   }
 
-  // Use toMap for JSON serialization
   Map<String, dynamic> toJson() => toMap();
 
-  // Base method for creating instance from Map
   factory CollectedData.fromMap(Map<String, dynamic> map) {
     return CollectedData(
       id: map['id'],
@@ -68,7 +66,7 @@ class CollectedData {
       description: map['description'],
       location: map['location'],
       timestamp: DateTime.parse(map['timestamp']),
-      isSynced: map['isSynced'] == 1, // Convert SQLite 1/0 to boolean
+      isSynced: map['isSynced'] == 1,
       imageLocalPath: map['imageLocalPath'],
       category: map['category'],
       latitude: map['latitude'],
@@ -80,7 +78,6 @@ class CollectedData {
     );
   }
 
-  // Use fromMap for JSON deserialization
   factory CollectedData.fromJson(Map<String, dynamic> json) =>
       CollectedData.fromMap(json);
 
@@ -119,7 +116,6 @@ class CollectedData {
   }
 }
 
-// Enhanced database helper
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
   static Database? _database;
@@ -127,9 +123,7 @@ class DatabaseHelper {
   DatabaseHelper._init();
 
   Future<Database> get database async {
-    if (_database != null) return _database!;
-    _database = await _initDB('collected_data.db');
-    return _database!;
+    return _database ??= await _initDB('collected_data.db');
   }
 
   Future<Database> _initDB(String filePath) async {
@@ -165,7 +159,6 @@ class DatabaseHelper {
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
-      // Add new columns for version 2
       await db
           .execute('ALTER TABLE collected_data ADD COLUMN imageLocalPath TEXT');
       await db.execute('ALTER TABLE collected_data ADD COLUMN category TEXT');
@@ -219,12 +212,13 @@ class DatabaseHelper {
   }
 }
 
-// Enhanced data provider with sync features
 class DataProvider with ChangeNotifier {
   final List<CollectedData> _items = [];
   bool _isOnline = false;
   bool _isSyncing = false;
   final ImagePicker _imagePicker = ImagePicker();
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  final Connectivity _connectivity = Connectivity();
 
   List<CollectedData> get items => [..._items];
   bool get isOnline => _isOnline;
@@ -238,18 +232,29 @@ class DataProvider with ChangeNotifier {
   }
 
   Future<void> initializeConnectivity() async {
-    final connectivity = await Connectivity().checkConnectivity();
-    _isOnline = connectivity != ConnectivityResult.none;
+    try {
+      List<ConnectivityResult> result = await _connectivity.checkConnectivity();
+      _updateConnectionStatus(result);
 
-    Connectivity()
-        .onConnectivityChanged
-        .listen((List<ConnectivityResult> results) {
-      _isOnline = results.any((result) => result != ConnectivityResult.none);
-      if (_isOnline) {
-        syncData();
-      }
-      notifyListeners();
-    });
+      _connectivitySubscription =
+          _connectivity.onConnectivityChanged.listen(_updateConnectionStatus);
+    } catch (e) {
+      print('Could not get connectivity status: $e');
+    }
+  }
+
+  void _updateConnectionStatus(List<ConnectivityResult> results) {
+    _isOnline = results.any((result) => result != ConnectivityResult.none);
+    if (_isOnline) {
+      syncData();
+    }
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _connectivitySubscription?.cancel();
+    super.dispose();
   }
 
   String? validateTitle(String? value) {
@@ -313,12 +318,6 @@ class DataProvider with ChangeNotifier {
             }
           }
 
-          // TODO: Implement actual API call
-          // await apiService.syncData(
-          //   data.toMap(),
-          //   imageUrl: imageUrl,
-          // );
-
           await DatabaseHelper.instance.markAsSynced(data.id!);
         } catch (e) {
           print('Error syncing item ${data.id}: $e');
@@ -332,7 +331,7 @@ class DataProvider with ChangeNotifier {
     }
   }
 
-  void startPeriodicSync() {
+  Future<void> startPeriodicSync() async {
     Future.doWhile(() async {
       if (_isOnline && !_isSyncing) {
         await syncData();
@@ -352,7 +351,7 @@ class DataProvider with ChangeNotifier {
     await loadData();
 
     if (_isOnline) {
-      syncData();
+      await syncData();
     }
 
     return true;
@@ -365,8 +364,9 @@ class DataProvider with ChangeNotifier {
   }
 }
 
-// Form widget for data collection
 class DataCollectionForm extends StatefulWidget {
+  const DataCollectionForm({super.key});
+
   @override
   _DataCollectionFormState createState() => _DataCollectionFormState();
 }
@@ -386,30 +386,28 @@ class _DataCollectionFormState extends State<DataCollectionForm> {
 
   @override
   Widget build(BuildContext context) {
+    final dataProvider = Provider.of<DataProvider>(context, listen: false);
+
     return Form(
       key: _formKey,
       child: Column(
         children: [
           TextFormField(
-            decoration: InputDecoration(labelText: 'Title'),
-            validator: (value) =>
-                Provider.of<DataProvider>(context, listen: false)
-                    .validateTitle(value),
+            decoration: const InputDecoration(labelText: 'Title'),
+            validator: (value) => dataProvider.validateTitle(value),
             onSaved: (value) {
               _title = value;
             },
           ),
           TextFormField(
-            decoration: InputDecoration(labelText: 'Description'),
-            validator: (value) =>
-                Provider.of<DataProvider>(context, listen: false)
-                    .validateDescription(value),
+            decoration: const InputDecoration(labelText: 'Description'),
+            validator: (value) => dataProvider.validateDescription(value),
             onSaved: (value) {
               _description = value;
             },
           ),
           TextFormField(
-            decoration: InputDecoration(labelText: 'Location'),
+            decoration: const InputDecoration(labelText: 'Location'),
             onSaved: (value) {
               _location = value;
             },
@@ -423,7 +421,7 @@ class _DataCollectionFormState extends State<DataCollectionForm> {
                 final collectedData = CollectedData(
                   title: _title!,
                   description: _description!,
-                  location: _location!,
+                  location: _location ?? '',
                   timestamp: _timestamp,
                   imageLocalPath: _imageLocalPath,
                   category: _category,
@@ -433,25 +431,89 @@ class _DataCollectionFormState extends State<DataCollectionForm> {
                   additionalFields: _additionalFields,
                 );
 
-                final success =
-                    await Provider.of<DataProvider>(context, listen: false)
-                        .addData(collectedData);
+                final success = await dataProvider.addData(collectedData);
 
-                if (success) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Data successfully saved!')),
-                  );
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Validation failed.')),
-                  );
-                }
+                if (!mounted) return;
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      success
+                          ? 'Data successfully saved!'
+                          : 'Validation failed.',
+                    ),
+                  ),
+                );
               }
             },
-            child: Text('Save Data'),
+            child: const Text('Save Data'),
           ),
         ],
       ),
+    );
+  }
+}
+
+class CollectedDataList extends StatefulWidget {
+  const CollectedDataList({super.key});
+
+  @override
+  _CollectedDataListState createState() => _CollectedDataListState();
+}
+
+class _CollectedDataListState extends State<CollectedDataList> {
+  @override
+  void initState() {
+    super.initState();
+    // Use Provider.of with listen: false for one-time initialization
+    Provider.of<DataProvider>(context, listen: false).loadData();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<DataProvider>(
+      builder: (context, provider, child) {
+        if (provider.items.isEmpty) {
+          return const Center(
+            child: Text('No data collected yet'),
+          );
+        }
+
+        return ListView.builder(
+          itemCount: provider.items.length,
+          itemBuilder: (context, index) {
+            final item = provider.items[index];
+            return Card(
+              margin: const EdgeInsets.symmetric(
+                horizontal: 16.0,
+                vertical: 8.0,
+              ),
+              child: ListTile(
+                title: Text(item.title),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(item.description),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Location: ${item.location}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    Text(
+                      'Date: ${item.timestamp.toString().split('.')[0]}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+                trailing: Icon(
+                  item.isSynced ? Icons.cloud_done : Icons.cloud_upload,
+                  color: item.isSynced ? Colors.green : Colors.orange,
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
