@@ -9,7 +9,6 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'dart:async';
 
-// Enhanced data model
 class CollectedData {
   final int? id;
   final String title;
@@ -212,7 +211,7 @@ class DatabaseHelper {
   }
 }
 
-class DataProvider with ChangeNotifier {
+class DataProvider extends ChangeNotifier {
   final List<CollectedData> _items = [];
   bool _isOnline = false;
   bool _isSyncing = false;
@@ -368,7 +367,7 @@ class DataCollectionForm extends StatefulWidget {
   const DataCollectionForm({super.key});
 
   @override
-  _DataCollectionFormState createState() => _DataCollectionFormState();
+  State<DataCollectionForm> createState() => _DataCollectionFormState();
 }
 
 class _DataCollectionFormState extends State<DataCollectionForm> {
@@ -391,6 +390,7 @@ class _DataCollectionFormState extends State<DataCollectionForm> {
     return Form(
       key: _formKey,
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           TextFormField(
             decoration: const InputDecoration(labelText: 'Title'),
@@ -412,7 +412,6 @@ class _DataCollectionFormState extends State<DataCollectionForm> {
               _location = value;
             },
           ),
-          // Additional fields and image capture button can go here
           ElevatedButton(
             onPressed: () async {
               if (_formKey.currentState?.validate() == true) {
@@ -458,21 +457,20 @@ class CollectedDataList extends StatefulWidget {
   const CollectedDataList({super.key});
 
   @override
-  _CollectedDataListState createState() => _CollectedDataListState();
+  State<CollectedDataList> createState() => _CollectedDataListState();
 }
 
 class _CollectedDataListState extends State<CollectedDataList> {
   @override
   void initState() {
     super.initState();
-    // Use Provider.of with listen: false for one-time initialization
     Provider.of<DataProvider>(context, listen: false).loadData();
   }
 
   @override
   Widget build(BuildContext context) {
     return Consumer<DataProvider>(
-      builder: (context, provider, child) {
+      builder: (BuildContext context, DataProvider provider, Widget? child) {
         if (provider.items.isEmpty) {
           return const Center(
             child: Text('No data collected yet'),
@@ -481,7 +479,7 @@ class _CollectedDataListState extends State<CollectedDataList> {
 
         return ListView.builder(
           itemCount: provider.items.length,
-          itemBuilder: (context, index) {
+          itemBuilder: (BuildContext context, int index) {
             final item = provider.items[index];
             return Card(
               margin: const EdgeInsets.symmetric(
@@ -509,11 +507,155 @@ class _CollectedDataListState extends State<CollectedDataList> {
                   item.isSynced ? Icons.cloud_done : Icons.cloud_upload,
                   color: item.isSynced ? Colors.green : Colors.orange,
                 ),
+                onTap: () {
+                  _showDetailDialog(context, item);
+                },
               ),
             );
           },
         );
       },
+    );
+  }
+
+  void _showDetailDialog(BuildContext context, CollectedData item) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(item.title),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(item.description),
+                const SizedBox(height: 8),
+                Text('Location: ${item.location}'),
+                Text('Status: ${item.status}'),
+                if (item.category != null) Text('Category: ${item.category}'),
+                if (item.latitude != null && item.longitude != null)
+                  Text('Coordinates: ${item.latitude}, ${item.longitude}'),
+                if (item.imageLocalPath != null) ...[
+                  const SizedBox(height: 8),
+                  Image.file(
+                    File(item.imageLocalPath!),
+                    height: 200,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (BuildContext context, Object error,
+                        StackTrace? stackTrace) {
+                      return const Center(
+                        child: Icon(
+                          Icons.broken_image,
+                          size: 48,
+                          color: Colors.grey,
+                        ),
+                      );
+                    },
+                  ),
+                ],
+                if (item.additionalFields?.isNotEmpty == true) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Additional Information:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  ...item.additionalFields!.entries.map(
+                    (entry) => Text('${entry.key}: ${entry.value}'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text('Close'),
+            ),
+            TextButton(
+              onPressed: () {
+                Provider.of<DataProvider>(context, listen: false)
+                    .deleteData(item.id!);
+                Navigator.of(context).pop();
+              },
+              child: const Text(
+                'Delete',
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class DataCollectionPage extends StatefulWidget {
+  const DataCollectionPage({super.key});
+
+  @override
+  State<DataCollectionPage> createState() => _DataCollectionPageState();
+}
+
+class _DataCollectionPageState extends State<DataCollectionPage> {
+  @override
+  void initState() {
+    super.initState();
+    final dataProvider = Provider.of<DataProvider>(context, listen: false);
+    dataProvider.initializeConnectivity();
+    dataProvider.startPeriodicSync();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Data Collection'),
+        actions: [
+          Consumer<DataProvider>(
+            builder:
+                (BuildContext context, DataProvider provider, Widget? child) {
+              return IconButton(
+                icon: Icon(
+                  provider.isOnline ? Icons.cloud_done : Icons.cloud_off,
+                  color: provider.isOnline ? Colors.green : Colors.grey,
+                ),
+                onPressed: provider.isOnline ? provider.syncData : null,
+                tooltip: provider.isOnline ? 'Sync data' : 'Offline',
+              );
+            },
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              flex: 2,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16.0),
+                child: const DataCollectionForm(),
+              ),
+            ),
+            const Divider(),
+            const Expanded(
+              flex: 3,
+              child: CollectedDataList(),
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: Consumer<DataProvider>(
+        builder: (BuildContext context, DataProvider provider, Widget? child) {
+          if (provider.isSyncing) {
+            return const LinearProgressIndicator();
+          }
+          return const SizedBox.shrink();
+        },
+      ),
     );
   }
 }

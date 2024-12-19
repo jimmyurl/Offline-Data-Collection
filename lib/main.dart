@@ -3,14 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(
     ChangeNotifierProvider(
-      create: (context) => DataProvider(),
-      child: MaterialApp(
-        home: Scaffold(
-          body: DataCollectionForm(), // or wherever you're using it
-        ),
-      ),
+      create: (BuildContext context) => DataProvider(),
+      child: const MyApp(),
     ),
   );
 }
@@ -47,10 +44,11 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     // Setup connectivity and load data after the first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Provider.of<DataProvider>(context, listen: false)
-          .initializeConnectivity();
-      Provider.of<DataProvider>(context, listen: false).loadData();
-      Provider.of<DataProvider>(context, listen: false).startPeriodicSync();
+      if (!mounted) return;
+      final dataProvider = Provider.of<DataProvider>(context, listen: false);
+      dataProvider.initializeConnectivity();
+      dataProvider.loadData();
+      dataProvider.startPeriodicSync();
     });
   }
 
@@ -70,7 +68,8 @@ class _HomePageState extends State<HomePage> {
         ),
         actions: [
           Consumer<DataProvider>(
-            builder: (context, provider, child) {
+            builder:
+                (BuildContext context, DataProvider provider, Widget? child) {
               return Padding(
                 padding: const EdgeInsets.only(right: 16.0),
                 child: Icon(
@@ -101,22 +100,22 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildBottomNavigationBar() {
     return BottomNavigationBar(
-      items: [
-        const BottomNavigationBarItem(
+      type: BottomNavigationBarType.fixed,
+      items: const [
+        BottomNavigationBarItem(
           icon: Icon(Icons.home),
           label: 'Home',
         ),
         BottomNavigationBarItem(
-          icon: Image.asset('assets/icons/assessments.png',
-              width: 24, height: 24),
+          icon: ImageIcon(AssetImage('assets/icons/assessments.png')),
           label: 'Assessments',
         ),
         BottomNavigationBarItem(
-          icon: Image.asset('assets/icons/uploads.png', width: 24, height: 24),
+          icon: ImageIcon(AssetImage('assets/icons/uploads.png')),
           label: 'Uploads',
         ),
         BottomNavigationBarItem(
-          icon: Image.asset('assets/icons/profile.png', width: 24, height: 24),
+          icon: ImageIcon(AssetImage('assets/icons/profile.png')),
           label: 'Profile',
         ),
       ],
@@ -135,9 +134,14 @@ class _HomePageState extends State<HomePage> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (context) => Padding(
-        padding: EdgeInsets.all(16.0),
-        child: DataCollectionForm(),
+      builder: (BuildContext context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          left: 16.0,
+          right: 16.0,
+          top: 16.0,
+        ),
+        child: const DataCollectionForm(),
       ),
     );
   }

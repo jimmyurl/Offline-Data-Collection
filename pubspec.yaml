@@ -33,7 +33,7 @@ flutter:
 
   uses-material-design: true
 
-  # Add the assets section to include your logo
+ 
   assets:
     - assets/images/logo1.png
     - assets/icons/home.png
@@ -41,4 +41,4 @@ flutter:
     - assets/icons/uploads.png
     - assets/icons/profile.png
 
-  # You can include additional assets or fonts here as needed.
+ 
